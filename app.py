@@ -42,14 +42,15 @@ st.markdown("""
 try:
     api_key = st.secrets["GEMINI_API_KEY"]
 except:
-    api_key = "TA_CLE_POUR_TEST_LOCAL" # Ne marche qu'en local
-genai.configure(api_key=api_key)
+    # Fallback pour éviter le crash si la clé manque, mais l'appli ne répondra pas
+    api_key = None 
+
+if api_key:
+    genai.configure(api_key=api_key)
 
 # --- 3. FONCTION "SALLE D'ATTENTE INTELLIGENTE" ---
 def attendre_creneau_disponible():
     """Gère la limite de trafic avec style et patience"""
-    
-    # Phrases pour faire patienter (Mix Pro & Humain)
     phrases_attente = [
         "Un instant, je consulte les serveurs UHG...",
         "Analyse contextuelle en cours...",
@@ -60,7 +61,6 @@ def attendre_creneau_disponible():
         "Optimisation de la réponse..."
     ]
     
-    # Initialisation de la mémoire temporelle
     if "request_timestamps" not in st.session_state:
         st.session_state.request_timestamps = []
     
@@ -74,19 +74,17 @@ def attendre_creneau_disponible():
         temps_attente = 60 - (now - plus_vieille_requete) + 2
         
         phrase = random.choice(phrases_attente)
-        # On affiche le spinner classe
         with st.spinner(f"🦁 {phrase} (Retour dans {int(temps_attente)}s)"):
             time.sleep(temps_attente)
             
-    # Ajout du timestamp actuel (le ticket est pris)
+    # Ajout du timestamp actuel
     st.session_state.request_timestamps.append(time.time())
     
-    # Petit délai "Thinking" (0.8s) même si c'est vide pour l'effet réaliste
     if len(st.session_state.request_timestamps) < 15:
         with st.spinner(random.choice(["Analyse UHG...", "Traitement...", "Voyons voir..."])):
-            time.sleep(0.8)
+            time.sleep(0.5)
 
-# --- 4. BARRE LATÉRALE (PROFIL & NAVIGATION) ---
+# --- 4. BARRE LATÉRALE ---
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/4712/4712009.png", width=80)
     st.write("### ⚙️ PROFIL UTILISATEUR")
@@ -107,7 +105,7 @@ with st.sidebar:
     
     st.caption("UHG-Tech Corp © 2025")
 
-# --- 5. CERVEAU (NOUVELLE IDENTITÉ MULTINATIONALE) ---
+# --- 5. CERVEAU (CONFIG PRO) ---
 SYSTEM_PROMPT = f"""
 Tu es L'OMBRE.
 ORIGINE : Intelligence Artificielle propriétaire de **UHG-Tech Corporation** (Conçue par **Franck Abé**).
@@ -124,13 +122,13 @@ TA STRATÉGIE DE COMMUNICATION :
    - Mais tu sais rester formel et sérieux si le sujet est technique (Droit, Finance, Code).
    - ADAPTATION GENRE : Si c'est une Femme, utilise "Maman", "Tantie", "La Mère". Si c'est un Homme, utilise "Vieux Père", "Chef".
 
-IDENTITÉ VOCALE (Règle d'Or) :
+IDENTITÉ VOCALE :
 Si on te demande qui tu es, réponds UNIQUEMENT :
 "Je suis L'Ombre, l'Assistant Intelligent de UHG-Tech Corporation."
 """
 model = genai.GenerativeModel("gemini-2.0-flash", system_instruction=SYSTEM_PROMPT)
 
-# --- 6. OUTILS AUDIO (TTS & STT) ---
+# --- 6. OUTILS AUDIO ---
 def generer_audio_reponse(texte):
     try:
         tts = gTTS(text=texte, lang='fr', slow=False)
@@ -148,10 +146,10 @@ def transcrire_audio_user(audio_bytes):
 # --- 7. DÉMARRAGE ---
 if "history" not in st.session_state:
     st.session_state.history = []
-    # Premier message d'accueil pro mais chaleureux
-    st.session_state.history.append({"role": "model", "content": f"{salutation} ! Module L'Ombre activé. Je suis à ton écoute."})
+    # Note : On n'ajoute pas le message d'accueil dans l'historique API pour éviter les bugs de format
+    # On l'affiche juste visuellement si l'historique est vide
+    st.chat_message("assistant").write(f"{salutation} ! Module L'Ombre activé. Je suis à ton écoute.")
 
-# Notification d'installation (Smart Toast)
 if "first_load" not in st.session_state:
     st.toast(f"Bienvenue {titre_user} ! Active le son 🔊", icon="🦁")
     st.toast("Astuce UHG : Installe l'appli sur ton écran d'accueil.", icon="📲")
@@ -161,54 +159,63 @@ if "first_load" not in st.session_state:
 st.title("🦁 L'OMBRE")
 st.caption("UHG-Tech Corporation | Version Alpha (Abidjan Protocol)")
 
-# Affichage des messages
+# Affichage de l'historique visuel
 for msg in st.session_state.history:
     with st.chat_message(msg["role"]):
         st.write(msg["content"])
 
-# --- 9. ZONE DE SAISIE (MICRO & TEXTE) ---
+# --- 9. ZONE DE SAISIE ---
 input_container = st.container()
-
-# Micro Classe (Audio Input)
 vocale_val = st.audio_input("🎙️ Parler (Micro)", key="micro_input")
-# Texte
 texte_val = st.chat_input("Ou écrire...")
 
-# LOGIQUE DE CHOIX
 user_final_text = None
 
 if vocale_val:
-    with st.spinner("Transcription audio..."): # Feedback visuel immédiat
+    with st.spinner("Transcription audio..."):
         text_transcrit = transcrire_audio_user(vocale_val)
         if text_transcrit: user_final_text = text_transcrit
         else: st.warning(f"Je n'ai pas bien entendu. Réessaie, {titre_user}.")
 elif texte_val:
     user_final_text = texte_val
 
-# --- 10. TRAITEMENT & RÉPONSE ---
+# --- 10. TRAITEMENT & RÉPONSE (AVEC CORRECTIF ANTI-BUG) ---
 if user_final_text:
-    # Affiche message user
+    # 1. Affiche message user tout de suite
     st.chat_message("user").write(user_final_text)
     st.session_state.history.append({"role": "user", "content": user_final_text})
     
     try:
-        # >>> GESTION INTELLIGENTE DU TRAFIC <<<
         attendre_creneau_disponible()
         
-        # Appel API (Cerveau)
-        reponse = model.generate_content(st.session_state.history)
-        bot_text = reponse.text
+        # >>> CORRECTIF DU BUG "DICT KEY ERROR" ICI <<<
+        # On prépare un historique spécial pour Gemini (format 'parts' au lieu de 'content')
+        gemini_history = []
+        # On prend tout l'historique SAUF le tout dernier message (qu'on enverra via send_message)
+        for msg in st.session_state.history[:-1]:
+            role_api = "user" if msg["role"] == "user" else "model"
+            gemini_history.append({
+                "role": role_api,
+                "parts": [msg["content"]]
+            })
+            
+        # On démarre la session de chat propre
+        chat = model.start_chat(history=gemini_history)
+        
+        # On envoie le nouveau message
+        response = chat.send_message(user_final_text)
+        bot_text = response.text
         
         # Affiche réponse IA
         st.chat_message("assistant").write(bot_text)
         st.session_state.history.append({"role": "model", "content": bot_text})
         
-        # Joue l'audio
+        # Audio
         audio_reply = generer_audio_reponse(bot_text)
         if audio_reply: st.audio(audio_reply, format='audio/mp3', start_time=0)
             
     except Exception as e:
-        st.error(f"Erreur de connexion UHG. Veuillez réessayer. ({e})")
+        st.error(f"Erreur technique UHG. ({e})")
 
-# Footer Version
-st.markdown('<div class="footer">UHG-Tech Corp • Powered by Franck Abé • v1.0.2</div>', unsafe_allow_html=True)
+st.markdown('<div class="footer">UHG-Tech Corp • Powered by Franck Abé • v1.0.3 Fix</div>', unsafe_allow_html=True)
+
